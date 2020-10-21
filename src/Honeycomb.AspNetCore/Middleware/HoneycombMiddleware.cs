@@ -12,30 +12,26 @@ namespace Honeycomb.AspNetCore.Middleware
     public class HoneycombMiddleware
     {
         private readonly RequestDelegate _next;
-        private readonly ILogger<HoneycombMiddleware> _logger;
-        private readonly IHoneycombService _service;
         private readonly IOptions<HoneycombApiSettings> _settings;
-        public HoneycombMiddleware(RequestDelegate next, 
-            IHoneycombService service,
+        private readonly IHoneycombEventScopeManager _scopeManager;
+
+        public HoneycombMiddleware(RequestDelegate next,
             IOptions<HoneycombApiSettings> settings,
-            ILogger<HoneycombMiddleware> logger)
+            IHoneycombEventScopeManager scopeManager)
         {
             _next = next;
-            _service = service;
             _settings = settings;
-            _logger = logger;
+            _scopeManager = scopeManager;
         }
 
         public async Task InvokeAsync(HttpContext context)
         {
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
-            
-            var ev = new HoneycombEvent
-            {
-                DataSetName = _settings.Value.DefaultDataSet
-            };
-            context.Items.Add(HoneycombEventManager.ContextItemName, ev);
+            using var scope = _scopeManager.CreateScope(out var ev);
+
+            ev.DataSetName = _settings.Value.DefaultDataSet;
+
+            // TODO: `Activity.Current.Id` might be better here? Or, say _settings.Value.GetTraceIdFrom = ...
+            // https://docs.microsoft.com/en-us/dotnet/api/system.diagnostics.activity?view=netcore-3.1
             ev.Data.Add("trace.trace_id", context.TraceIdentifier);
             ev.Data.Add("request.path", context.Request.Path.Value);
             ev.Data.Add("request.method", context.Request.Method);
@@ -47,24 +43,19 @@ namespace Honeycomb.AspNetCore.Middleware
             try
             {
                 await _next.Invoke(context);
-            
-            	ev.Data.TryAdd("name", $"{context.GetRouteValue("controller")}#{context.GetRouteValue("action")}");
+
+                ev.Data.TryAdd("name", $"{context.GetRouteValue("controller")}#{context.GetRouteValue("action")}");
                 ev.Data.TryAdd("action", context.GetRouteValue("action"));
                 ev.Data.TryAdd("controller", context.GetRouteValue("controller"));
-            	ev.Data.TryAdd("response.content_length", context.Response.ContentLength);
-            	ev.Data.TryAdd("response.status_code", context.Response.StatusCode);
-            	ev.Data.TryAdd("duration_ms", stopwatch.ElapsedMilliseconds);
+                ev.Data.TryAdd("response.content_length", context.Response.ContentLength);
+                ev.Data.TryAdd("response.status_code", context.Response.StatusCode);
             }
             catch (Exception ex)
             {
-                ev.Data.TryAdd("request.error", ex.Source);
-                ev.Data.TryAdd("request.error_detail", ex.Message);
+                scope.Exception(ex);
+
                 throw;
             }
-            finally
-            {
-                _service.QueueEvent(ev);
-            }
         }
-}
+    }
 }

@@ -4,6 +4,8 @@
     <TargetFramework>netcoreapp2.1</TargetFramework>
     <NuspecFile>Honeycomb.AspNetCore.nuspec</NuspecFile>
     <AssemblyVersion>1.0.0</AssemblyVersion>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
